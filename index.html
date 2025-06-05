@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>ตรวจจับท่านั่ง</title>
+
+  <!-- Teachable Machine Pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    #alert-box {
+      display: none;
+      padding: 10px;
+      background: #e74c3c;
+      color: white;
+      margin-top: 10px;
+      font-weight: bold;
+      border-radius: 5px;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      color: white;
+      font-weight: bold;
+      margin-right: 10px;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    #startBtn { background-color: #27ae60; }
+    #stopBtn { background-color: #c0392b; }
+    #resetBtn { background-color: #e67e22; }
+
+    .bar-container {
+      width: 400px;
+      height: 30px;
+      background: #eee;
+      border-radius: 15px;
+      margin: 10px 0;
+      overflow: hidden;
+      box-shadow: inset 0 0 5px #ccc;
+    }
+    .bar-correct {
+      height: 100%;
+      background-color: #2ecc71;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .bar-bad {
+      height: 100%;
+      background-color: #e74c3c;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+<h2>ตรวจจับท่านั่งด้วย Teachable Machine</h2>
+
+<button id="startBtn">Start</button>
+<button id="stopBtn">Stop</button>
+<button id="resetBtn">Reset</button>
+
+<label><input type="checkbox" id="soundToggle" checked /> เปิดเสียงแจ้งเตือน</label>
+
+<br /><br />
+
+<canvas id="canvas" width="400" height="400" style="border:1px solid #ddd;"></canvas>
+
+<div id="label-container"></div>
+
+<div>
+  <div>นั่งถูกหลัก <span id="correctPercent">0%</span></div>
+  <div class="bar-container">
+    <div id="barCorrect" class="bar-correct"></div>
+  </div>
+
+  <div>นั่งผิดหลัก <span id="badPercent">0%</span></div>
+  <div class="bar-container">
+    <div id="barBad" class="bar-bad"></div>
+  </div>
+</div>
+
+<div id="alert-box"></div>
+
+<h3>สถิติท่านั่งผิด (ย้อนหลัง 7 วัน)</h3>
+<canvas id="chart" width="600" height="200"></canvas>
+
+<audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+
+<script src="main.js"></script>
+</body>
+</html>
