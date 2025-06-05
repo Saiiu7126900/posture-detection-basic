@@ -96,6 +96,251 @@
 
 <audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
 
-<script src="main.js"></script>
+<script>
+  const URL = "https://teachablemachine.withgoogle.com/models/xtgDT3JxI/";
+
+  let model, webcam, ctx, labelContainer, maxPredictions;
+  let isRunning = false;
+
+  let correctTime = 0; // วินาที
+  let badTime = 0;     // วินาที
+  let lastTimestamp = null;
+
+  let chart = null;
+
+  async function loadModel() {
+    const modelURL = URL + "model.json";
+    const metadataURL = URL + "metadata.json";
+
+    model = await tmPose.load(modelURL, metadataURL);
+    maxPredictions = model.getTotalClasses();
+  }
+
+  async function startWebcam() {
+    webcam = new tmPose.Webcam(400, 400, true);
+    try {
+      await webcam.setup();
+      await webcam.play();
+    } catch (err) {
+      alert("ไม่สามารถเข้าถึงกล้องได้: " + err.message);
+      return;
+    }
+
+    const canvas = document.getElementById("canvas");
+    ctx = canvas.getContext("2d");
+    labelContainer = document.getElementById("label-container");
+
+    lastTimestamp = performance.now();
+    isRunning = true;
+    window.requestAnimationFrame(loop);
+  }
+
+  async function init() {
+    if (!model) {
+      await loadModel();
+    }
+  }
+
+  async function loop(timestamp) {
+    if (!isRunning) return;
+    webcam.update();
+    await predict();
+    window.requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+    const prediction = await model.predict(posenetOutput);
+
+    let probCorrect = 0, probBad = 0;
+    for (let i = 0; i < maxPredictions; i++) {
+      const p = prediction[i];
+      if (p.className === "Class 1") probCorrect = p.probability;
+      else if (p.className === "Class 2") probBad = p.probability;
+    }
+
+    const isBadPosture = probBad > probCorrect && probBad > 0.5;
+
+    let outputHTML = `
+      <div>นั่งถูกหลัก: ${(probCorrect * 100).toFixed(0)}%</div>
+      <div>นั่งผิดหลัก: ${(probBad * 100).toFixed(0)}%</div>
+    `;
+
+    const now = performance.now();
+    const elapsedSec = (now - lastTimestamp) / 1000;
+    lastTimestamp = now;
+
+    if (isBadPosture) {
+      badTime += elapsedSec;
+    } else {
+      correctTime += elapsedSec;
+    }
+
+    outputHTML += `
+      <div>เวลานั่งถูกหลัก: ${formatTime(correctTime)}</div>
+      <div>เวลานั่งผิดหลัก: ${formatTime(badTime)}</div>
+    `;
+
+    labelContainer.innerHTML = outputHTML;
+
+    drawPose(pose);
+
+    updateBars();
+
+    saveStatsToLocalStorage();
+
+    if (calculatePercent().bad >= 55) {
+      showAlert("คุณนั่งผิดหลักการยศาสตร์");
+    }
+  }
+
+  function drawPose(pose) {
+    if (webcam && webcam.canvas) {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.drawImage(webcam.canvas, 0, 0);
+      if (pose) {
+        const minConfidence = 0.5;
+        tmPose.drawKeypoints(pose.keypoints, minConfidence, ctx);
+        tmPose.drawSkeleton(pose.keypoints, minConfidence, ctx);
+      }
+    }
+  }
+
+  function calculatePercent() {
+    const total = correctTime + badTime;
+    if (total === 0) return { correct: 0, bad: 0 };
+    return {
+      correct: Math.round((correctTime / total) * 100),
+      bad: Math.round((badTime / total) * 100),
+    };
+  }
+
+  function updateBars() {
+    const percents = calculatePercent();
+    document.getElementById("correctPercent").innerText = percents.correct + "%";
+    document.getElementById("badPercent").innerText = percents.bad + "%";
+    document.getElementById("barCorrect").style.width = percents.correct + "%";
+    document.getElementById("barBad").style.width = percents.bad + "%";
+  }
+
+  function stop() {
+    isRunning = false;
+    if (webcam) webcam.stop();
+  }
+
+  function reset() {
+    stop();
+    correctTime = 0;
+    badTime = 0;
+    lastTimestamp = null;
+    localStorage.removeItem("postureStats");
+    renderChart();
+    location.reload();
+  }
+
+  function showAlert(message) {
+    const alertBox = document.getElementById("alert-box");
+    alertBox.innerText = message;
+    alertBox.style.display = "block";
+
+    const soundOn = document.getElementById("soundToggle").checked;
+    if (soundOn) {
+      document.getElementById("alertSound").play();
+    }
+
+    setTimeout(() => {
+      alertBox.style.display = "none";
+    }, 4000);
+  }
+
+  function formatTime(seconds) {
+    const min = Math.floor(seconds / 60);
+    const sec = Math.floor(seconds % 60);
+    return `${min} นาที ${sec} วินาที`;
+  }
+
+  // บันทึกสถิติลง localStorage แยกวัน
+  function saveStatsToLocalStorage() {
+    const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+    let stats = JSON.parse(localStorage.getItem("postureStats") || "{}");
+
+    if (!stats[today]) {
+      stats[today] = { correct: 0, bad: 0 };
+    }
+
+    stats[today].correct = Math.round(correctTime);
+    stats[today].bad = Math.round(badTime);
+
+    localStorage.setItem("postureStats", JSON.stringify(stats));
+
+    renderChart();
+  }
+
+  // แสดงกราฟย้อนหลัง 7 วัน
+  function renderChart() {
+    const stats = JSON.parse(localStorage.getItem("postureStats") || "{}");
+    const labels = [];
+    const dataBad = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const day = date.toISOString().slice(0, 10);
+      labels.push(day);
+
+      if (stats[day]) {
+        dataBad.push(stats[day].bad);
+      } else {
+        dataBad.push(0);
+      }
+    }
+
+    if (chart) chart.destroy();
+
+    const ctxChart = document.getElementById("chart").getContext("2d");
+    chart = new Chart(ctxChart, {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [{
+          label: "เวลานั่งผิด (วินาที)",
+          data: dataBad,
+          backgroundColor: "#e74c3c",
+        }],
+      },
+      options: {
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 10 },
+          },
+        },
+      },
+    });
+  }
+
+  // Event listeners ปุ่มควบคุม
+  document.getElementById("startBtn").addEventListener("click", async () => {
+    if (!isRunning) {
+      if (!model) await loadModel();
+      if (!webcam) await startWebcam();
+      isRunning = true;
+      lastTimestamp = performance.now();
+      window.requestAnimationFrame(loop);
+    }
+  });
+  document.getElementById("stopBtn").addEventListener("click", () => {
+    stop();
+  });
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    reset();
+  });
+
+  window.onload = async () => {
+    await init();
+    renderChart();
+  };
+</script>
+
 </body>
 </html>
